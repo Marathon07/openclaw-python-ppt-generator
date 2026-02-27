@@ -122,29 +122,44 @@ for data in slides_data:
 
     elif layout == "timeline":
         steps = data.get("steps", [])
-        width, spacing, start_x = 2.2, 0.2, 0.6
-        for i, step in enumerate(steps):
-            x = start_x + i * (width + spacing)
-            shape = slide.shapes.add_shape(MSO_SHAPE.CHEVRON, Inches(x), Inches(2.2), Inches(width), Inches(0.8))
-            shape.fill.solid(); shape.fill.fore_color.rgb = TITLE_COLOR if i == 2 else RGBColor(230, 230, 230)
-            shape.line.fill.background()
-            tf = shape.text_frame; tf.word_wrap = True
-            p = tf.paragraphs[0]
-            p.text, p.font.size, p.font.bold, p.font.color.rgb, p.alignment = step.get("title", ""), Pt(14), True, BG if i == 2 else TEXT, PP_ALIGN.CENTER
-            icon_name = step.get("icon")
-            icon_y = 3.2
-            if icon_name:
-                img_stream = download_icon(icon_name)
-                if img_stream:
-                    slide.shapes.add_picture(img_stream, Inches(x + (width-0.5)/2), Inches(icon_y), width=Inches(0.5), height=Inches(0.5))
-                    icon_y += 0.6
-            tb = slide.shapes.add_textbox(Inches(x), Inches(icon_y), Inches(width), Inches(content_bottom - icon_y))
-            tb.text_frame.word_wrap = True; tb.text_frame.auto_size = 2
-            p2 = tb.text_frame.paragraphs[0]
-            r2 = p2.add_run()
-            r2.text = step.get("desc", "")
-            r2.font.size = Pt(13)
-            r2.font.color.rgb = RGBColor(80,80,80)
+        n_steps = len(steps)
+        if n_steps > 0:
+            spacing = 0.3
+            start_x = 0.5
+            total_avail_width = 12.33
+            width = (total_avail_width - (n_steps - 1) * spacing) / n_steps
+            
+            for i, step in enumerate(steps):
+                x = start_x + i * (width + spacing)
+                shape_y = 2.5
+                shape_h = 0.8
+                shape = slide.shapes.add_shape(MSO_SHAPE.CHEVRON, Inches(x), Inches(shape_y), Inches(width), Inches(shape_h))
+                shape.fill.solid(); shape.fill.fore_color.rgb = TITLE_COLOR if i == 2 else RGBColor(230, 230, 230)
+                shape.line.fill.background()
+                tf = shape.text_frame; tf.word_wrap = True
+                p = tf.paragraphs[0]
+                r = p.add_run()
+                r.text = step.get("title", "")
+                r.font.size = Pt(14)
+                r.font.bold = True
+                r.font.color.rgb = BG if i == 2 else TEXT
+                p.alignment = PP_ALIGN.CENTER
+                
+                icon_name = step.get("icon")
+                icon_y = shape_y + shape_h + 0.3
+                if icon_name:
+                    img_stream = download_icon(icon_name)
+                    if img_stream:
+                        slide.shapes.add_picture(img_stream, Inches(x + (width-0.6)/2), Inches(icon_y), width=Inches(0.6), height=Inches(0.6))
+                        icon_y += 0.8
+                
+                tb = slide.shapes.add_textbox(Inches(x), Inches(icon_y), Inches(width), Inches(content_bottom - icon_y))
+                tb.text_frame.word_wrap = True; tb.text_frame.auto_size = 2
+                p2 = tb.text_frame.paragraphs[0]
+                r2 = p2.add_run()
+                r2.text = step.get("desc", "")
+                r2.font.size = Pt(13)
+                r2.font.color.rgb = TEXT
 
     elif layout == "matrix":
         quads = data.get("quadrants", [])
