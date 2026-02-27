@@ -13,7 +13,7 @@ prs = Presentation()
 prs.slide_width, prs.slide_height = Inches(13.33), Inches(7.5)
 
 BG = RGBColor(255, 255, 255)
-TITLE_COLOR = RGBColor(0, 82, 155)      # IFC Blue
+TITLE_COLOR = RGBColor(0, 82, 155)      # Corporate Deep Blue
 ACCENT = RGBColor(0, 153, 204)          # Light Blue
 TEXT = RGBColor(60, 60, 60)
 BOX_BG = RGBColor(245, 247, 250)
