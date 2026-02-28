@@ -4,6 +4,9 @@ from pptx.util import Inches, Pt
 from pptx.enum.text import PP_ALIGN
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
+from pptx.chart.data import CategoryChartData, ChartData
+from pptx.enum.chart import XL_CHART_TYPE, XL_LABEL_POSITION, XL_LEGEND_POSITION
+from pptx.enum.chart import XL_TICK_LABEL_POSITION
 import cairosvg
 
 if len(sys.argv) < 3: sys.exit(1)
@@ -13,11 +16,21 @@ prs = Presentation()
 prs.slide_width, prs.slide_height = Inches(13.33), Inches(7.5)
 
 BG = RGBColor(255, 255, 255)
-TITLE_COLOR = RGBColor(0, 82, 155)      # Corporate Deep Blue
-ACCENT = RGBColor(0, 153, 204)          # Light Blue
+TITLE_COLOR = RGBColor(0, 82, 155)
+ACCENT = RGBColor(0, 153, 204)
 TEXT = RGBColor(60, 60, 60)
 BOX_BG = RGBColor(245, 247, 250)
 ICON_COLOR_HEX = "00529B"
+
+PALETTE = [
+    RGBColor(0, 82, 155),    # Deep Blue
+    RGBColor(0, 153, 204),   # Light Blue
+    RGBColor(255, 153, 0),   # Orange
+    RGBColor(0, 153, 102),   # Teal
+    RGBColor(153, 0, 51),    # Dark Red
+    RGBColor(102, 102, 102), # Dark Gray
+    RGBColor(153, 102, 204), # Purple
+]
 
 def download_icon(icon_name):
     try:
@@ -28,8 +41,7 @@ def download_icon(icon_name):
         svg_data = requests.get(url, timeout=5).content
         png_data = cairosvg.svg2png(bytestring=svg_data)
         return io.BytesIO(png_data)
-    except Exception as e:
-        print(f"Failed to fetch icon {icon_name}: {e}")
+    except Exception:
         return None
 
 def add_bullet(tf, text):
@@ -106,45 +118,26 @@ for data in slides_data:
     elif layout == "image-text":
         img_path = data.get("image_path")
         if img_path and os.path.exists(img_path):
-            # Put image on left, text on right
             slide.shapes.add_picture(img_path, Inches(0.5), Inches(1.5), width=Inches(6.0), height=Inches(4.2))
-            
             body_box = slide.shapes.add_textbox(Inches(6.8), Inches(1.5), Inches(6.0), Inches(4.2))
             tf_body = body_box.text_frame; tf_body.word_wrap = True; tf_body.auto_size = 2
-            for content_line in data.get("content", []):
-                add_bullet(tf_body, "• " + content_line)
-        else:
-            # Fallback to full width text if no image
-            body_box = slide.shapes.add_textbox(Inches(0.5), Inches(1.5), Inches(12.33), Inches(4.2))
-            tf_body = body_box.text_frame; tf_body.word_wrap = True; tf_body.auto_size = 2
-            for content_line in data.get("content", []):
-                add_bullet(tf_body, "• " + content_line)
+            for content_line in data.get("content", []): add_bullet(tf_body, "• " + content_line)
 
     elif layout == "timeline":
         steps = data.get("steps", [])
         n_steps = len(steps)
         if n_steps > 0:
-            spacing = 0.3
-            start_x = 0.5
-            total_avail_width = 12.33
+            spacing, start_x, total_avail_width = 0.3, 0.5, 12.33
             width = (total_avail_width - (n_steps - 1) * spacing) / n_steps
-            
             for i, step in enumerate(steps):
-                x = start_x + i * (width + spacing)
-                shape_y = 2.5
-                shape_h = 0.8
+                x, shape_y, shape_h = start_x + i * (width + spacing), 2.5, 0.8
                 shape = slide.shapes.add_shape(MSO_SHAPE.CHEVRON, Inches(x), Inches(shape_y), Inches(width), Inches(shape_h))
                 shape.fill.solid(); shape.fill.fore_color.rgb = TITLE_COLOR if i == 2 else RGBColor(230, 230, 230)
                 shape.line.fill.background()
                 tf = shape.text_frame; tf.word_wrap = True
-                p = tf.paragraphs[0]
-                r = p.add_run()
-                r.text = step.get("title", "")
-                r.font.size = Pt(14)
-                r.font.bold = True
-                r.font.color.rgb = BG if i == 2 else TEXT
+                p = tf.paragraphs[0]; r = p.add_run()
+                r.text, r.font.size, r.font.bold, r.font.color.rgb = step.get("title", ""), Pt(14), True, BG if i == 2 else TEXT
                 p.alignment = PP_ALIGN.CENTER
-                
                 icon_name = step.get("icon")
                 icon_y = shape_y + shape_h + 0.3
                 if icon_name:
@@ -152,14 +145,10 @@ for data in slides_data:
                     if img_stream:
                         slide.shapes.add_picture(img_stream, Inches(x + (width-0.6)/2), Inches(icon_y), width=Inches(0.6), height=Inches(0.6))
                         icon_y += 0.8
-                
                 tb = slide.shapes.add_textbox(Inches(x), Inches(icon_y), Inches(width), Inches(content_bottom - icon_y))
                 tb.text_frame.word_wrap = True; tb.text_frame.auto_size = 2
-                p2 = tb.text_frame.paragraphs[0]
-                r2 = p2.add_run()
-                r2.text = step.get("desc", "")
-                r2.font.size = Pt(13)
-                r2.font.color.rgb = TEXT
+                p2 = tb.text_frame.paragraphs[0]; r2 = p2.add_run()
+                r2.text, r2.font.size, r2.font.color.rgb = step.get("desc", ""), Pt(13), TEXT
 
     elif layout == "matrix":
         quads = data.get("quadrants", [])
@@ -173,15 +162,85 @@ for data in slides_data:
             tf.margin_left = Inches(0.8)
             p = tf.paragraphs[0]
             p.text, p.font.bold, p.font.size, p.font.color.rgb = quad.get("title", ""), True, Pt(16), TITLE_COLOR
-            p2 = tf.add_paragraph()
-            r2 = p2.add_run()
-            r2.text = "\n" + quad.get("desc", "")
-            r2.font.size = Pt(14)
-            r2.font.color.rgb = TEXT
+            p2 = tf.add_paragraph(); r2 = p2.add_run()
+            r2.text, r2.font.size, r2.font.color.rgb = "\n" + quad.get("desc", ""), Pt(14), TEXT
             icon_name = quad.get("icon")
             if icon_name:
                 img_stream = download_icon(icon_name)
-                if img_stream:
-                    slide.shapes.add_picture(img_stream, Inches(x + 0.15), Inches(y + 0.2), width=Inches(0.5), height=Inches(0.5))
+                if img_stream: slide.shapes.add_picture(img_stream, Inches(x + 0.15), Inches(y + 0.2), width=Inches(0.5), height=Inches(0.5))
+
+    elif layout == "native-chart":
+        c_type = data.get("chart_type", "column_clustered")
+        categories = data.get("categories", [])
+        series_list = data.get("series", [])
+        
+        # --- V6 SMART AUTO-LAYOUT ENGINE ---
+        max_cat_len = max([len(str(c)) for c in categories]) if categories else 0
+        num_categories = len(categories)
+        num_series = len(series_list)
+        total_data_points = num_categories * num_series
+        
+        # Rule 1: Prevent overlapping X-axis labels
+        # If labels are long and there are many of them, force a Horizontal Bar Chart
+        if (max_cat_len > 6 and num_categories > 4) or num_categories > 8:
+            c_type = "bar_clustered"
+            
+        chart_data = ChartData() if c_type == "pie" else CategoryChartData()
+        chart_data.categories = categories
+        
+        for series in series_list:
+            chart_data.add_series(series.get("name", "Value"), series.get("values", []))
+            
+        x, y, cx, cy = Inches(0.5), Inches(1.5), Inches(12.33), Inches(4.2)
+        
+        type_enum = XL_CHART_TYPE.COLUMN_CLUSTERED
+        if c_type == "bar_clustered": type_enum = XL_CHART_TYPE.BAR_CLUSTERED
+        if c_type == "pie": type_enum = XL_CHART_TYPE.PIE
+        
+        chart = slide.shapes.add_chart(type_enum, x, y, cx, cy, chart_data).chart
+        
+        for i, series in enumerate(chart.series):
+            fill = series.format.fill
+            fill.solid()
+            fill.fore_color.rgb = PALETTE[i % len(PALETTE)]
+            
+        chart.has_legend = True if len(series_list) > 1 or c_type == "pie" else False
+        if chart.has_legend:
+            # Rule 2: Smart legend placement
+            if num_series > 4:
+                chart.legend.position = XL_LEGEND_POSITION.RIGHT
+            else:
+                chart.legend.position = XL_LEGEND_POSITION.BOTTOM
+            chart.legend.font.size = Pt(12)
+            chart.legend.font.name = 'Microsoft YaHei'
+            
+        # Rule 3: Anti-Barcode & Overlap Prevention for Data Labels
+        chart.plots[0].has_data_labels = True
+        data_labels = chart.plots[0].data_labels
+        data_labels.font.name = 'Microsoft YaHei'
+        
+        if total_data_points > 20:
+            # Hide data labels if it's too crowded (barcode effect)
+            chart.plots[0].has_data_labels = False
+            # Ensure gridlines and axis are visible to read values
+            if getattr(chart, 'has_value_axis', False):
+                chart.value_axis.has_major_gridlines = True
+        elif total_data_points > 10:
+            # Shrink font if moderately crowded
+            data_labels.font.size = Pt(9)
+        else:
+            data_labels.font.size = Pt(12)
+        
+        if c_type == "pie":
+            data_labels.show_percentage = True
+            data_labels.show_value = False
+            
+        # Font settings for axes to prevent illegible tiny text
+        if getattr(chart, 'has_category_axis', False):
+            chart.category_axis.tick_labels.font.name = 'Microsoft YaHei'
+            chart.category_axis.tick_labels.font.size = Pt(11)
+        if getattr(chart, 'has_value_axis', False):
+            chart.value_axis.tick_labels.font.name = 'Microsoft YaHei'
+            chart.value_axis.tick_labels.font.size = Pt(11)
 
 prs.save(sys.argv[2])
