@@ -30,7 +30,7 @@ python generate_ppt.py data.json output.pptx
 
 ## Author
 **Fang Min**  
-Email: fangmin777@gmail.com
+Email: 130218391+Marathon07@users.noreply.github.com
 
 ## License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
