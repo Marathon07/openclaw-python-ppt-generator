@@ -299,7 +299,7 @@ for data in slides_data:
                 data_labels.show_value = False
                 
             # AESTHETICS: Clean Axes (No lines, specific font sizes)
-            if getattr(chart, 'has_category_axis', False):
+            try:
                 cat_axis = chart.category_axis
                 cat_axis.format.line.fill.background()
                 cat_axis.tick_labels.font.name = 'Microsoft YaHei'
@@ -311,14 +311,18 @@ for data in slides_data:
                     cat_axis.tick_labels.font.size = Pt(10)
                 cat_axis.tick_labels.font.color.rgb = RGBColor(80, 80, 80)
                 cat_axis.tick_label_spacing = 1
+            except ValueError:
+                pass
                 
-            if getattr(chart, 'has_value_axis', False):
+            try:
                 val_axis = chart.value_axis
                 val_axis.format.line.fill.background()
                 val_axis.has_major_gridlines = False # CRITICAL: No gridlines per user requirement
                 val_axis.tick_labels.font.name = 'Microsoft YaHei'
                 val_axis.tick_labels.font.size = Pt(9)
                 val_axis.tick_labels.font.color.rgb = RGBColor(120, 120, 120)
+            except ValueError:
+                pass
 
         # SPLIT LOGIC FOR DENSE BAR CHARTS
         if type_enum == XL_CHART_TYPE.BAR_CLUSTERED and len(categories) >= 10 and num_series == 1:
