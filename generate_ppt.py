@@ -6,18 +6,41 @@ from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.chart.data import CategoryChartData, ChartData
 from pptx.enum.chart import XL_CHART_TYPE, XL_LABEL_POSITION, XL_LEGEND_POSITION
-from pptx.enum.chart import XL_TICK_LABEL_POSITION
+from pptx.enum.chart import XL_TICK_MARK
 import cairosvg
 
-if len(sys.argv) < 3: sys.exit(1)
-with open(sys.argv[1], 'r', encoding='utf-8') as f: slides_data = json.load(f)
+if len(sys.argv) < 3: 
+    print("Usage: python generate_ppt.py <input.json> <output.pptx> [template.pptx]")
+    sys.exit(1)
 
-prs = Presentation()
-prs.slide_width, prs.slide_height = Inches(13.33), Inches(7.5)
+input_json = sys.argv[1]
+output_pptx = sys.argv[2]
+script_dir = os.path.dirname(os.path.abspath(__file__))
 
+# Use provided template, or the embedded base_template.pptx, or default fallback
+if len(sys.argv) >= 4:
+    template_path = sys.argv[3]
+else:
+    template_path = os.path.join(script_dir, 'base_template.pptx')
+
+if os.path.exists(template_path):
+    prs = Presentation(template_path)
+    # Clear existing slides from the template
+    for i in range(len(prs.slides) - 1, -1, -1):
+        rId = prs.slides._sldIdLst[i].rId
+        prs.part.drop_rel(rId)
+        del prs.slides._sldIdLst[i]
+else:
+    prs = Presentation() # Fallback to blank
+    prs.slide_width, prs.slide_height = Inches(13.33), Inches(7.5)
+
+with open(input_json, 'r', encoding='utf-8') as f: 
+    slides_data = json.load(f)
+
+# Corporate Design System Colors
 BG = RGBColor(255, 255, 255)
-TITLE_COLOR = RGBColor(0, 82, 155)
-ACCENT = RGBColor(0, 153, 204)
+TITLE_COLOR = RGBColor(0, 82, 155)      # Corporate Deep Blue
+ACCENT = RGBColor(0, 153, 204)          # Light Blue
 TEXT = RGBColor(60, 60, 60)
 BOX_BG = RGBColor(245, 247, 250)
 ICON_COLOR_HEX = "00529B"
@@ -58,8 +81,17 @@ def add_bullet(tf, text):
 
 for data in slides_data:
     layout = data.get("layout", "two-column")
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    slide.background.fill.solid(); slide.background.fill.fore_color.rgb = BG
+    try:
+        slide_layout = prs.slide_layouts[6] # Often a blank layout
+    except:
+        slide_layout = prs.slide_layouts[0]
+        
+    slide = prs.slides.add_slide(slide_layout)
+    # Ensure background is white if not defined by master
+    try:
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = BG
+    except: pass
     
     if layout == "cover":
         txBox = slide.shapes.add_textbox(Inches(1), Inches(2.5), Inches(11.33), Inches(2))
@@ -68,7 +100,7 @@ for data in slides_data:
         p.text, p.font.name, p.font.size, p.font.bold, p.font.color.rgb, p.alignment = data.get("title", ""), 'Microsoft YaHei', Pt(40), True, TITLE_COLOR, PP_ALIGN.CENTER
         if "subtitle" in data:
             p2 = tf.add_paragraph()
-            p2.text, p2.font.name, p2.font.size, p2.font.color.rgb, p2.alignment, p2.space_before = data["subtitle"], 'Microsoft YaHei', Pt(24), ACCENT, PP_ALIGN.CENTER, Pt(20)
+            p2.text, p2.font.name, p2.font.size, p2.font.color.rgb, p2.alignment, p2.space_before = data.get("subtitle", ""), 'Microsoft YaHei', Pt(24), ACCENT, PP_ALIGN.CENTER, Pt(20)
         continue
 
     title_box = slide.shapes.add_textbox(Inches(0.5), Inches(0.4), Inches(12.33), Inches(0.8))
@@ -122,6 +154,10 @@ for data in slides_data:
             body_box = slide.shapes.add_textbox(Inches(6.8), Inches(1.5), Inches(6.0), Inches(4.2))
             tf_body = body_box.text_frame; tf_body.word_wrap = True; tf_body.auto_size = 2
             for content_line in data.get("content", []): add_bullet(tf_body, "• " + content_line)
+        else:
+            body_box = slide.shapes.add_textbox(Inches(0.5), Inches(1.5), Inches(12.33), Inches(4.2))
+            tf_body = body_box.text_frame; tf_body.word_wrap = True; tf_body.auto_size = 2
+            for content_line in data.get("content", []): add_bullet(tf_body, "• " + content_line)
 
     elif layout == "timeline":
         steps = data.get("steps", [])
@@ -163,7 +199,9 @@ for data in slides_data:
             p = tf.paragraphs[0]
             p.text, p.font.bold, p.font.size, p.font.color.rgb = quad.get("title", ""), True, Pt(16), TITLE_COLOR
             p2 = tf.add_paragraph(); r2 = p2.add_run()
-            r2.text, r2.font.size, r2.font.color.rgb = "\n" + quad.get("desc", ""), Pt(14), TEXT
+            r2.text = "\\n" + quad.get("desc", "")
+            r2.font.size = Pt(14)
+            r2.font.color.rgb = TEXT
             icon_name = quad.get("icon")
             if icon_name:
                 img_stream = download_icon(icon_name)
@@ -174,14 +212,11 @@ for data in slides_data:
         categories = data.get("categories", [])
         series_list = data.get("series", [])
         
-        # --- V6 SMART AUTO-LAYOUT ENGINE ---
         max_cat_len = max([len(str(c)) for c in categories]) if categories else 0
         num_categories = len(categories)
         num_series = len(series_list)
         total_data_points = num_categories * num_series
         
-        # Rule 1: Prevent overlapping X-axis labels
-        # If labels are long and there are many of them, force a Horizontal Bar Chart
         if (max_cat_len > 6 and num_categories > 4) or num_categories > 8:
             c_type = "bar_clustered"
             
@@ -191,56 +226,123 @@ for data in slides_data:
         for series in series_list:
             chart_data.add_series(series.get("name", "Value"), series.get("values", []))
             
-        x, y, cx, cy = Inches(0.5), Inches(1.5), Inches(12.33), Inches(4.2)
+        x, y, cx, cy = Inches(0.5), Inches(1.5), Inches(12.33), Inches(4.5)
         
         type_enum = XL_CHART_TYPE.COLUMN_CLUSTERED
         if c_type == "bar_clustered": type_enum = XL_CHART_TYPE.BAR_CLUSTERED
         if c_type == "pie": type_enum = XL_CHART_TYPE.PIE
         
-        chart = slide.shapes.add_chart(type_enum, x, y, cx, cy, chart_data).chart
-        
-        for i, series in enumerate(chart.series):
-            fill = series.format.fill
-            fill.solid()
-            fill.fore_color.rgb = PALETTE[i % len(PALETTE)]
+        def style_chart(chart, c_type, num_series, total_data_points, max_cat_len):
+            # AESTHETICS: Thick bars (Gap Width = 100)
+            try:
+                if chart.chart_type in [XL_CHART_TYPE.COLUMN_CLUSTERED, XL_CHART_TYPE.BAR_CLUSTERED]:
+                    chart.plots[0].gap_width = 100
+            except: pass
             
-        chart.has_legend = True if len(series_list) > 1 or c_type == "pie" else False
-        if chart.has_legend:
-            # Rule 2: Smart legend placement
-            if num_series > 4:
-                chart.legend.position = XL_LEGEND_POSITION.RIGHT
+            # AESTHETICS: Palette Application
+            if c_type == "pie":
+                chart.plots[0].vary_by_categories = True
+                try:
+                    for idx, point in enumerate(chart.series[0].points):
+                        fill = point.format.fill
+                        fill.solid()
+                        fill.fore_color.rgb = PALETTE[idx % len(PALETTE)]
+                except: pass
             else:
-                chart.legend.position = XL_LEGEND_POSITION.BOTTOM
-            chart.legend.font.size = Pt(12)
-            chart.legend.font.name = 'Microsoft YaHei'
+                for idx_s, series in enumerate(chart.series):
+                    fill = series.format.fill
+                    fill.solid()
+                    fill.fore_color.rgb = PALETTE[idx_s % len(PALETTE)]
+                    series.format.line.fill.background() # No outlines
+                    
+            # AESTHETICS: Legend positioning
+            chart.has_legend = True if num_series > 1 or c_type == "pie" else False
+            if chart.has_legend:
+                chart.legend.position = XL_LEGEND_POSITION.RIGHT if num_series > 4 else XL_LEGEND_POSITION.BOTTOM
+                chart.legend.font.size = Pt(10)
+                chart.legend.font.name = 'Microsoft YaHei'
+                chart.legend.include_in_layout = False
+                
+            # AESTHETICS: Data Labels
+            chart.plots[0].has_data_labels = True
+            data_labels = chart.plots[0].data_labels
+            data_labels.font.name = 'Microsoft YaHei'
             
-        # Rule 3: Anti-Barcode & Overlap Prevention for Data Labels
-        chart.plots[0].has_data_labels = True
-        data_labels = chart.plots[0].data_labels
-        data_labels.font.name = 'Microsoft YaHei'
-        
-        if total_data_points > 20:
-            # Hide data labels if it's too crowded (barcode effect)
-            chart.plots[0].has_data_labels = False
-            # Ensure gridlines and axis are visible to read values
+            # Data Type detection: score vs percentage
+            data_type = data.get("data_type", "percentage")
+            if data_type == "score":
+                data_labels.number_format = '0.00'
+            elif c_type == "pie":
+                data_labels.number_format = '0%'
+            else:
+                data_labels.number_format = '0"%"'
+                
+            data_labels.number_format_is_linked = False
+            
+            try:
+                data_labels.position = XL_LABEL_POSITION.OUTSIDE_END
+            except: pass
+            
+            # Font size scaling
+            if total_data_points > 30:
+                data_labels.font.size = Pt(10)
+            elif total_data_points > 15:
+                data_labels.font.size = Pt(12)
+            else:
+                data_labels.font.size = Pt(14)
+            
+            if total_data_points > 40:
+                chart.plots[0].has_data_labels = False 
+                
+            if c_type == "pie":
+                data_labels.show_percentage = True
+                data_labels.show_value = False
+                
+            # AESTHETICS: Clean Axes (No lines, specific font sizes)
+            if getattr(chart, 'has_category_axis', False):
+                cat_axis = chart.category_axis
+                cat_axis.format.line.fill.background()
+                cat_axis.tick_labels.font.name = 'Microsoft YaHei'
+                if max_cat_len > 12:
+                    cat_axis.tick_labels.font.size = Pt(8)
+                elif max_cat_len > 5:
+                    cat_axis.tick_labels.font.size = Pt(9)
+                else:
+                    cat_axis.tick_labels.font.size = Pt(10)
+                cat_axis.tick_labels.font.color.rgb = RGBColor(80, 80, 80)
+                cat_axis.tick_label_spacing = 1
+                
             if getattr(chart, 'has_value_axis', False):
-                chart.value_axis.has_major_gridlines = True
-        elif total_data_points > 10:
-            # Shrink font if moderately crowded
-            data_labels.font.size = Pt(9)
-        else:
-            data_labels.font.size = Pt(12)
-        
-        if c_type == "pie":
-            data_labels.show_percentage = True
-            data_labels.show_value = False
-            
-        # Font settings for axes to prevent illegible tiny text
-        if getattr(chart, 'has_category_axis', False):
-            chart.category_axis.tick_labels.font.name = 'Microsoft YaHei'
-            chart.category_axis.tick_labels.font.size = Pt(11)
-        if getattr(chart, 'has_value_axis', False):
-            chart.value_axis.tick_labels.font.name = 'Microsoft YaHei'
-            chart.value_axis.tick_labels.font.size = Pt(11)
+                val_axis = chart.value_axis
+                val_axis.format.line.fill.background()
+                val_axis.has_major_gridlines = False # CRITICAL: No gridlines per user requirement
+                val_axis.tick_labels.font.name = 'Microsoft YaHei'
+                val_axis.tick_labels.font.size = Pt(9)
+                val_axis.tick_labels.font.color.rgb = RGBColor(120, 120, 120)
 
-prs.save(sys.argv[2])
+        # SPLIT LOGIC FOR DENSE BAR CHARTS
+        if type_enum == XL_CHART_TYPE.BAR_CLUSTERED and len(categories) >= 10 and num_series == 1:
+            mid = len(categories) // 2
+            cd1 = CategoryChartData()
+            cd1.categories = categories[:mid]
+            cd1.add_series(series_list[0].get("name", "Value"), series_list[0].get("values", [])[:mid])
+            cd2 = CategoryChartData()
+            cd2.categories = categories[mid:]
+            cd2.add_series(series_list[0].get("name", "Value"), series_list[0].get("values", [])[mid:])
+            
+            chart1 = slide.shapes.add_chart(type_enum, Inches(0.2), y, Inches(6.0), cy, cd1).chart
+            style_chart(chart1, c_type, num_series, total_data_points//2, max_cat_len)
+            
+            chart2 = slide.shapes.add_chart(type_enum, Inches(6.5), y, Inches(6.5), cy, cd2).chart
+            style_chart(chart2, c_type, num_series, total_data_points//2, max_cat_len)
+            
+        elif type_enum == XL_CHART_TYPE.BAR_CLUSTERED and max_cat_len > 10:
+            cx_adj = Inches(10.5)
+            x_adj = Inches(2.0)
+            chart = slide.shapes.add_chart(type_enum, x_adj, y, cx_adj, cy, chart_data).chart
+            style_chart(chart, c_type, num_series, total_data_points, max_cat_len)
+        else:
+            chart = slide.shapes.add_chart(type_enum, x, y, cx, cy, chart_data).chart
+            style_chart(chart, c_type, num_series, total_data_points, max_cat_len)
+
+prs.save(output_pptx)
